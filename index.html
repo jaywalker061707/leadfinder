@@ -1140,9 +1140,9 @@ async function fetchPages(lat, lng, term) {
   do {
     try {
       const body = {
-        textQuery: `${term} near ${lat},${lng}`,
+        textQuery: term,  // just the search term — no coords in text query
         maxResultCount: 20,
-        locationBias: {
+        locationRestriction: {  // hard boundary — Google CANNOT return results outside this circle
           circle: {
             center: { latitude: lat, longitude: lng },
             radius: radius
