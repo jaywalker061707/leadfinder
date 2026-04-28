@@ -383,6 +383,7 @@ tbody td a:hover { text-decoration:underline; }
 .e-ok  { color:var(--green); font-weight:600; font-size:12px; }
 .no-v  { color:var(--g300); font-size:12px; }
 .star-v { color:#B45309; font-weight:600; font-size:12px; }
+.e-ok { color:var(--green); font-weight:600; font-size:12px; }
 .li-btn {
   display:inline-flex; align-items:center; gap:3px;
   background:#0A66C2; color:var(--white);
@@ -691,6 +692,7 @@ tbody td a:hover { text-decoration:underline; }
           </div>
           <div style="margin-top:13px;">
             <label class="chk"><input type="checkbox" id="dedupOn" checked>Deduplicate across ZIPs</label>
+            <label class="chk"><input type="checkbox" id="emailOn" checked>Find emails (crawls websites)</label>
             <label class="chk"><input type="checkbox" id="phoneReq">Require phone number</label>
             <label class="chk"><input type="checkbox" id="webReq">Require website</label>
           </div>
@@ -756,6 +758,7 @@ tbody td a:hover { text-decoration:underline; }
               <th onclick="srt('name')">Business Name</th>
               <th onclick="srt('category')">Category</th>
               <th onclick="srt('phone')">Phone</th>
+              <th onclick="srt('email')">Email</th>
               <th onclick="srt('rating')">★ Rating</th>
               <th onclick="srt('city')">City</th>
               <th>ZIP(s)</th>
@@ -775,6 +778,7 @@ tbody td a:hover { text-decoration:underline; }
 // Team API key — baked in, reps never see this
 const TEAM_KEY = 'AIzaSyAujs3rlS9iUunoGYT7uyapOJzwMhLKA3c';
 const USAGE_LIMIT = 5500; // warn at this many searches (buffer below 6000 free)
+const EMAIL_WORKER = 'https://leadfinder-email.jamesmcintyre6788.workers.dev';
 
 // ── STATE ──────────────────────────────────────
 let activeKey = '';
@@ -1051,6 +1055,7 @@ async function runSearch() {
             place_id: pid,
             name:     p.name || '',
             category: term,
+            email:    '',
             phone:    p.formatted_phone_number || '',
             website:  p.website || '',
             address:  addr,
@@ -1081,6 +1086,51 @@ async function runSearch() {
   btn.disabled = false; btn.textContent = 'Search Businesses';
   toast(`Found ${allResults.length} businesses`, 'ok');
   showScreen('s2');
+
+  // Start email crawl if enabled
+  if (document.getElementById('emailOn') && document.getElementById('emailOn').checked) {
+    crawlEmails();
+  }
+}
+
+async function crawlEmails() {
+  const todo = allResults.filter(r => r.website && !r.email);
+  if (!todo.length) return;
+
+  document.getElementById('progWrap').style.display = 'block';
+  setProgress(0, todo.length, `Crawling ${todo.length} websites for emails…`);
+
+  let found = 0;
+  const batchSize = 10;
+
+  for (let i = 0; i < todo.length; i += batchSize) {
+    const batch = todo.slice(i, i + batchSize);
+    try {
+      const resp = await fetch(EMAIL_WORKER, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          websites: batch.map(r => ({ id: r.place_id, website: r.website }))
+        })
+      });
+      const data = await resp.json();
+      if (data.results) {
+        data.results.forEach(({ id, email }) => {
+          if (email) {
+            const r = allResults.find(x => x.place_id === id);
+            if (r) { r.email = email; found++; }
+          }
+        });
+        renderTable();
+        updateCount();
+      }
+    } catch(e) { console.warn('Email crawl error:', e); }
+    setProgress(i + batchSize, todo.length, `Crawling websites — ${Math.min(i+batchSize, todo.length)}/${todo.length} checked, ${found} emails found`);
+    await sleep(200);
+  }
+
+  setProgress(todo.length, todo.length, `✓ Email crawl complete — ${found} emails found`);
+  toast(`Email crawl done — ${found} emails found`, 'ok');
 }
 
 async function fetchPages(lat, lng, term) {
@@ -1244,12 +1294,14 @@ function renderTable() {
     tr.dataset.phone=r.phone||'';
     const wc=r.website?`<a href="${r.website}" target="_blank">↗ Visit</a>`:`<span class="no-v">—</span>`;
     const rc=r.rating?`<span class="star-v">★ ${r.rating}</span>`:`<span class="no-v">—</span>`;
-    const liQ=encodeURIComponent(r.name+(r.city?' '+r.city:''));
-    const liC=`<a href="https://www.linkedin.com/search/results/companies/?keywords=${liQ}" target="_blank" class="li-btn">in</a>`;
+    const ec=r.email?`<span class="e-ok">${r.email}</span>`:r.website?`<span class="no-v">—</span>`:`<span class="no-v">—</span>`;
+    const liQ=encodeURIComponent(r.name+(r.city?' '+r.city:'')+(r.state?' '+r.state:''));
+    const liC=`<a href="https://www.linkedin.com/search/results/companies/?keywords=${liQ}&origin=GLOBAL_SEARCH_HEADER" target="_blank" class="li-btn" title="Search LinkedIn">in</a>`;
     tr.innerHTML=`
       <td title="${r.name}"><strong>${trunc(r.name,30)}</strong></td>
       <td>${trunc(r.category,20)}</td>
       <td>${r.phone||'<span class="no-v">—</span>'}</td>
+      <td>${ec}</td>
       <td>${rc}</td>
       <td>${r.city||'<span class="no-v">—</span>'}</td>
       <td style="font-family:'DM Mono',monospace;font-size:12px">${(r.zips||[r.zip]).join(', ')}</td>
@@ -1295,8 +1347,8 @@ function exportCSV(type) {
   const rows = type==='pipeline'
     ? [['Business Name','Phone','Website','Status','Contact Name','Contact Title','Last Contact Date','Next Action','Next Action Date','Notes'],
        ...filtered.map(r=>[r.name,r.phone,r.website,'New','','','','','',''])]
-    : [['Business Name','Category','Phone','Website','Address','City','State','ZIP Code(s)','Rating','Reviews','Google Maps URL','Date Scraped'],
-       ...filtered.map(r=>[r.name,r.category,r.phone,r.website,r.address,r.city,r.state,(r.zips||[r.zip]).join(', '),r.rating,r.reviews,r.maps_url,r.scraped])];
+    : [['Business Name','Category','Phone','Email','Website','Address','City','State','ZIP Code(s)','Rating','Reviews','Google Maps URL','Date Scraped'],
+       ...filtered.map(r=>[r.name,r.category,r.phone,r.email||'',r.website,r.address,r.city,r.state,(r.zips||[r.zip]).join(', '),r.rating,r.reviews,r.maps_url,r.scraped])];
   const wb=XLSX.utils.book_new();
   const ws=XLSX.utils.aoa_to_sheet(rows);
   // Style header row black
