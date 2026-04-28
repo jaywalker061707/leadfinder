@@ -1248,11 +1248,23 @@ function dzDrop(e) {
   const f = e.dataTransfer.files[0];
   if (f) fileUp({target:{files:[f]}});
 }
-function addZip() {
+async function addZip() {
   const i = document.getElementById('zipIn');
   const z = i.value.trim().replace(/\D/g,'');
-  if (z.length===5) { pushZip(z); i.value=''; }
-  else toast('Enter a valid 5-digit ZIP','warn');
+  if (z.length !== 5) { toast('Enter a valid 5-digit ZIP','warn'); return; }
+  // Validate against geocoder — checks it's a real US ZIP
+  if (!activeKey) { pushZip(z); i.value=''; return; }
+  try {
+    const r = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${z}&components=country:US&key=${activeKey}`);
+    const d = await r.json();
+    if (d.results && d.results.length > 0) {
+      const isZip = d.results[0].address_components.some(c => c.types.includes('postal_code'));
+      if (isZip) { pushZip(z); i.value=''; }
+      else toast(`${z} doesn't appear to be a valid US ZIP code`,'warn');
+    } else {
+      toast(`${z} — ZIP code not found`,'warn');
+    }
+  } catch { pushZip(z); i.value=''; } // fail open if API unreachable
 }
 function pushZip(z) { if (!zips.includes(z)) { zips.push(z); renderZips(); } }
 function removeZip(z) { zips=zips.filter(x=>x!==z); renderZips(); }
