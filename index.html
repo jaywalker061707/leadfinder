@@ -1137,16 +1137,24 @@ async function fetchPages(lat, lng, term) {
   const all = [];
   let nextPageToken = null;
   let pages = 0;
+
+  // Convert radius (meters) to a bounding box rectangle
+  // locationRestriction only accepts rectangle, not circle
+  const R = 6371000; // Earth radius in meters
+  const dLat = (radius / R) * (180 / Math.PI);
+  const dLng = dLat / Math.cos(lat * Math.PI / 180);
+  const bbox = {
+    low:  { latitude: lat - dLat, longitude: lng - dLng },
+    high: { latitude: lat + dLat, longitude: lng + dLng }
+  };
+
   do {
     try {
       const body = {
         textQuery: term,
         maxResultCount: 20,
         locationRestriction: {
-          circle: {
-            center: { latitude: lat, longitude: lng },
-            radius: radius
-          }
+          rectangle: bbox
         }
       };
       if (nextPageToken) body.pageToken = nextPageToken;
