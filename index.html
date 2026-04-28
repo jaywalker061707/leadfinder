@@ -457,6 +457,9 @@ tbody td a:hover { text-decoration:underline; }
     <div class="nstep" id="ns2"><span class="nn">2</span>Search</div>
     <div class="nstep" id="ns3"><span class="nn">3</span>Results</div>
   </div>
+  <button class="nav-key" onclick="showScreen('s1')" style="margin-right:8px;">
+    ← Home
+  </button>
   <button class="nav-key" id="navKeyBtn" onclick="showKeyModal()">
     <div class="key-dot" id="keyDot"></div>
     API Key
@@ -654,16 +657,6 @@ tbody td a:hover { text-decoration:underline; }
       <div class="card">
         <div class="card-hd"><div class="snum">1</div><h3>ZIP Codes</h3></div>
         <div class="card-body">
-          <div class="dz" id="dz" onclick="document.getElementById('fi').click()"
-            ondragover="e=>{e.preventDefault();document.getElementById('dz').classList.add('over')}"
-            ondrop="dzDrop(event)"
-            ondragleave="document.getElementById('dz').classList.remove('over')">
-            <svg class="dz-icon" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m.75 12l3 3m0 0l3-3m-3 3v-6m-1.5-9H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"/>
-            </svg>
-            <p><strong>Upload ZIP File</strong>Drag & drop or click — Excel or CSV</p>
-          </div>
-          <input type="file" id="fi" accept=".xlsx,.xls,.csv" onchange="fileUp(event)" style="display:none">
           <div class="zip-row">
             <input type="text" id="zipIn" placeholder="Type a ZIP…" maxlength="5" onkeydown="if(event.key==='Enter')addZip()">
             <button class="btn btn-ghost btn-sm" onclick="addZip()">Add</button>
@@ -681,7 +674,7 @@ tbody td a:hover { text-decoration:underline; }
           <div class="or-div">or</div>
           <div class="field" style="margin:0">
             <label>Custom Search</label>
-            <input type="text" id="customQ" placeholder="e.g. pediatric dentist, CPA firm…">
+            <input type="text" id="customQ" placeholder="e.g. pediatric dentist, CPA firm…" oninput="updateCostEstimate()">
           </div>
         </div>
       </div>
@@ -714,6 +707,10 @@ tbody td a:hover { text-decoration:underline; }
         </div>
       </div>
 
+      <div id="costEstimate" style="display:none;background:var(--blue-lt);border:1px solid var(--blue-mid);border-radius:var(--r);padding:10px 12px;margin-bottom:10px;font-size:12px;color:var(--g700);line-height:1.6;">
+        <strong style="color:var(--g900);">Search Cost Estimate</strong><br>
+        <span id="costDetail"></span>
+      </div>
       <button class="btn btn-blue btn-lg btn-full" id="runBtn" onclick="runSearch()">Search Businesses</button>
 
       <div class="prog-wrap" id="progWrap">
@@ -963,6 +960,7 @@ function buildPresets() {
       const i = selPresets.indexOf(p);
       if (i >= 0) { selPresets.splice(i, 1); c.classList.remove('on'); }
       else { selPresets.push(p); c.classList.add('on'); }
+      updateCostEstimate();
     };
     w.appendChild(c);
   });
@@ -977,6 +975,31 @@ function setRad(r, el) {
 function goSearch() {
   if (!activeKey) { toast('API key not ready yet — please wait or set up your personal key', 'warn'); return; }
   showScreen('s2');
+}
+
+function updateCostEstimate() {
+  const terms = [...selPresets];
+  const cq = document.getElementById('customQ').value.trim();
+  if (cq) terms.push(cq);
+  const zipCount = zips.length;
+  const termCount = terms.length;
+  const est = zipCount * termCount;
+  const remaining = Math.max(0, USAGE_LIMIT - searchCount);
+  const el = document.getElementById('costEstimate');
+  const detail = document.getElementById('costDetail');
+  if (zipCount > 0 && termCount > 0) {
+    el.style.display = 'block';
+    const pct = Math.round((est / USAGE_LIMIT) * 100);
+    detail.innerHTML = `${zipCount} ZIP${zipCount>1?'s':''} × ${termCount} category${termCount>1?'s':''} = <strong>${est} searches</strong> &nbsp;|&nbsp; ${remaining.toLocaleString()} remaining this month`;
+    if (est > remaining) {
+      el.style.background = '#FDEDF4'; el.style.borderColor = '#F9A8C9';
+      detail.innerHTML += '<br><span style="color:var(--red);font-weight:600;">⚠ Exceeds remaining limit — reduce ZIPs or categories</span>';
+    } else {
+      el.style.background = 'var(--blue-lt)'; el.style.borderColor = 'var(--blue-mid)';
+    }
+  } else {
+    el.style.display = 'none';
+  }
 }
 
 async function runSearch() {
@@ -1028,8 +1051,8 @@ async function runSearch() {
             place_id: pid,
             name:     p.name || '',
             category: term,
-            phone:    '',
-            website:  '',
+            phone:    p.formatted_phone_number || '',
+            website:  p.website || '',
             address:  addr,
             city:     cityFrom(addr),
             state:    stateFrom(addr),
@@ -1037,7 +1060,7 @@ async function runSearch() {
             zips:     [zip],
             rating:   p.rating ? String(p.rating) : '',
             reviews:  p.user_ratings_total || 0,
-            maps_url: `https://www.google.com/maps/place/?q=place_id:${pid}`,
+            maps_url: p.maps_url || `https://www.google.com/maps/place/?q=place_id:${pid}`,
             scraped:  new Date().toLocaleDateString()
           });
         }
@@ -1062,20 +1085,51 @@ async function runSearch() {
 
 async function fetchPages(lat, lng, term) {
   const all = [];
-  let token = null, pages = 0;
+  let nextPageToken = null;
+  let pages = 0;
   do {
-    const url = token
-      ? `https://maps.googleapis.com/maps/api/place/textsearch/json?pagetoken=${token}&key=${activeKey}`
-      : `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(term + ' near ' + lat + ',' + lng)}&location=${lat},${lng}&radius=${radius}&key=${activeKey}`;
     try {
-      const r = await fetch(url);
+      const body = {
+        textQuery: `${term} near ${lat},${lng}`,
+        maxResultCount: 20,
+        locationBias: {
+          circle: {
+            center: { latitude: lat, longitude: lng },
+            radius: radius
+          }
+        }
+      };
+      if (nextPageToken) body.pageToken = nextPageToken;
+
+      const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': activeKey,
+          'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.websiteUri,places.rating,places.userRatingCount,places.googleMapsUri,nextPageToken'
+        },
+        body: JSON.stringify(body)
+      });
       const d = await r.json();
-      if (d.results) all.push(...d.results);
-      token = d.next_page_token || null;
-      if (token) await sleep(2200);
-    } catch { break; }
+      if (d.places) {
+        // Normalize new API shape to match expected fields
+        d.places.forEach(p => all.push({
+          place_id: p.id || '',
+          name: p.displayName?.text || '',
+          formatted_address: p.formattedAddress || '',
+          vicinity: p.formattedAddress || '',
+          formatted_phone_number: p.nationalPhoneNumber || '',
+          website: p.websiteUri || '',
+          rating: p.rating || '',
+          user_ratings_total: p.userRatingCount || 0,
+          maps_url: p.googleMapsUri || ''
+        }));
+      }
+      nextPageToken = d.nextPageToken || null;
+      if (nextPageToken) await sleep(2200);
+    } catch(e) { console.warn('Search error:', e); break; }
     pages++;
-  } while (token && pages < 3);
+  } while (nextPageToken && pages < 3);
   return all;
 }
 
@@ -1084,19 +1138,26 @@ async function loadDetails() {
     const batch = allResults.slice(i, i + 5);
     await Promise.all(batch.map(async r => {
       if (!r.place_id) return;
-      try {
-        const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${r.place_id}&fields=formatted_phone_number,website,address_components&key=${activeKey}`;
-        const res = await fetch(url);
-        const d = await res.json();
-        if (d.result) {
-          r.phone   = d.result.formatted_phone_number || '';
-          r.website = d.result.website || '';
-          const cc  = (d.result.address_components||[]).find(c => c.types.includes('locality'));
-          const sc  = (d.result.address_components||[]).find(c => c.types.includes('administrative_area_level_1'));
-          if (cc) r.city  = cc.long_name;
-          if (sc) r.state = sc.short_name;
-        }
-      } catch {}
+      // Phone/website already fetched from Places API (New) — just parse city/state from address
+      if (!r.phone && !r.website) {
+        try {
+          const res = await fetch(`https://places.googleapis.com/v1/places/${r.place_id}`, {
+            headers: {
+              'X-Goog-Api-Key': activeKey,
+              'X-Goog-FieldMask': 'nationalPhoneNumber,websiteUri,addressComponents'
+            }
+          });
+          const d = await res.json();
+          if (d) {
+            r.phone   = d.nationalPhoneNumber || '';
+            r.website = d.websiteUri || '';
+            const cc  = (d.addressComponents||[]).find(c => (c.types||[]).includes('locality'));
+            const sc  = (d.addressComponents||[]).find(c => (c.types||[]).includes('administrative_area_level_1'));
+            if (cc) r.city  = cc.longText || cc.longName || '';
+            if (sc) r.state = cc.shortText || sc.shortName || '';
+          }
+        } catch {}
+      }
     }));
     setProgress(allResults.length, allResults.length, `Loading details… ${Math.min(i+5,allResults.length)}/${allResults.length}`);
     await sleep(80);
@@ -1146,6 +1207,7 @@ function renderZips() {
     w.appendChild(c);
   });
   document.getElementById('zipCt').textContent=zips.length?`${zips.length} ZIP code${zips.length>1?'s':''} loaded`:'';
+  updateCostEstimate();
 }
 
 // ── TABLE ─────────────────────────────────────
